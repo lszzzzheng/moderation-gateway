@@ -78,7 +78,7 @@ def to_service_parameters(payload: Dict[str, Any]) -> Dict[str, Any]:
 def text_content(payload: Dict[str, Any]) -> str:
     parts = [str(payload.get("title", "")).strip(), str(payload.get("text", "")).strip()]
     content = "\n".join([part for part in parts if part]).strip()
-    return content[:600]
+    return content[:5000]
 
 
 def text_service_parameters(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -213,6 +213,7 @@ def moderate():
                     {
                         "ok": False,
                         "decision": "REVIEW",
+                        "error_type": "gateway_exception",
                         "error": str(exc),
                         "risk_level": "unknown",
                         "labels": [],
