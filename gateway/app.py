@@ -20,6 +20,8 @@ class Settings:
 
     service = os.getenv("MODERATION_SERVICE", "post_text_image_detection")
     profile_service = os.getenv("MODERATION_PROFILE_SERVICE", "profile_text_image_detection")
+    text_service = os.getenv("MODERATION_TEXT_SERVICE", "ugc_moderation_byllm")
+    profile_text_service = os.getenv("MODERATION_PROFILE_TEXT_SERVICE", "nickname_detection_pro")
     biz_type = os.getenv("MODERATION_BIZ_TYPE", "default")
     poll_interval_seconds = float(os.getenv("MODERATION_POLL_INTERVAL_SECONDS", "2"))
     poll_max_attempts = int(os.getenv("MODERATION_POLL_MAX_ATTEMPTS", "8"))
@@ -73,10 +75,27 @@ def to_service_parameters(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def resolve_service(payload: Dict[str, Any]) -> str:
+def text_content(payload: Dict[str, Any]) -> str:
+    parts = [str(payload.get("title", "")).strip(), str(payload.get("text", "")).strip()]
+    content = "\n".join([part for part in parts if part]).strip()
+    return content[:600]
+
+
+def text_service_parameters(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "content": text_content(payload),
+        "dataId": payload.get("data_id") or str(uuid.uuid4()),
+    }
+
+
+def resolve_service(payload: Dict[str, Any], images: List[Dict[str, str]]) -> str:
     scene = str(payload.get("scene", "")).lower()
+    if scene == "profile" and not images:
+        return SETTINGS.profile_text_service
     if scene == "profile":
         return SETTINGS.profile_service
+    if scene == "post" and not images:
+        return SETTINGS.text_service
     if scene == "post":
         return SETTINGS.service
     return str(payload.get("service") or SETTINGS.service)
@@ -96,7 +115,11 @@ def map_decision(risk_level: str) -> str:
 
 def submit_and_poll(payload: Dict[str, Any]) -> Dict[str, Any]:
     client = build_client()
-    service = resolve_service(payload)
+    images = normalize_images(payload.get("images", []))
+    service = resolve_service(payload, images)
+    if service in {SETTINGS.text_service, SETTINGS.profile_text_service}:
+        return submit_text_moderation(client, payload, service)
+
     service_parameters = to_service_parameters(payload)
 
     submit_request = green_models.MultimodalAsyncModerationRequest(
@@ -134,6 +157,29 @@ def submit_and_poll(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def submit_text_moderation(client: GreenClient, payload: Dict[str, Any], service: str) -> Dict[str, Any]:
+    content = text_content(payload)
+    if not content:
+        raise ValueError("Text moderation requires non-empty title or text content")
+
+    request = green_models.TextModerationPlusRequest(
+        service=service,
+        service_parameters=json.dumps(text_service_parameters(payload), ensure_ascii=False),
+    )
+    response = client.text_moderation_plus(request).body.to_map()
+    data = response.get("Data", {})
+    risk_level = data.get("RiskLevel", "")
+
+    return {
+        "decision": map_decision(risk_level),
+        "risk_level": risk_level,
+        "labels": data.get("Result", []),
+        "req_id": response.get("RequestId", ""),
+        "service": service,
+        "raw": response,
+    }
+
+
 @app.get("/healthz")
 def healthz():
     return jsonify(
@@ -141,6 +187,8 @@ def healthz():
             "ok": True,
             "service": SETTINGS.service,
             "profile_service": SETTINGS.profile_service,
+            "text_service": SETTINGS.text_service,
+            "profile_text_service": SETTINGS.profile_text_service,
         }
     )
 

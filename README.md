@@ -10,6 +10,10 @@ It supports two scenes:
 - `scene=post` -> `post_text_image_detection`
 - `scene=profile` -> `profile_text_image_detection`
 
+When a request has no images:
+- post text falls back to `MODERATION_TEXT_SERVICE` (default `ugc_moderation_byllm`)
+- profile text falls back to `MODERATION_PROFILE_TEXT_SERVICE` (default `nickname_detection_pro`)
+
 ## Files
 
 - `.env.example`: environment variables template
