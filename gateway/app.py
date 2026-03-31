@@ -11,6 +11,8 @@ from alibabacloud_tea_openapi.models import Config
 
 app = Flask(__name__)
 
+MAX_MULTIMODAL_TEXT_CHARS = 5000
+
 
 class Settings:
     region_id = os.getenv("ALIBABA_CLOUD_REGION_ID", "cn-shanghai")
@@ -57,8 +59,10 @@ def normalize_images(images: List[Any]) -> List[Dict[str, str]]:
 
 
 def to_service_parameters(payload: Dict[str, Any]) -> Dict[str, Any]:
-    title = payload.get("title", "")
-    text = payload.get("text", "")
+    title, text = trim_multimodal_text(
+        str(payload.get("title", "")).strip(),
+        str(payload.get("text", "")).strip(),
+    )
     images = normalize_images(payload.get("images", []))
     comments = payload.get("comments", [])
 
@@ -75,10 +79,19 @@ def to_service_parameters(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def trim_multimodal_text(title: str, text: str) -> tuple[str, str]:
+    if len(title) + len(text) <= MAX_MULTIMODAL_TEXT_CHARS:
+        return title, text
+
+    title = title[: min(len(title), MAX_MULTIMODAL_TEXT_CHARS)]
+    remaining = max(MAX_MULTIMODAL_TEXT_CHARS - len(title), 0)
+    return title, text[:remaining]
+
+
 def text_content(payload: Dict[str, Any]) -> str:
     parts = [str(payload.get("title", "")).strip(), str(payload.get("text", "")).strip()]
     content = "\n".join([part for part in parts if part]).strip()
-    return content[:5000]
+    return content[:MAX_MULTIMODAL_TEXT_CHARS]
 
 
 def text_service_parameters(payload: Dict[str, Any]) -> Dict[str, Any]:
