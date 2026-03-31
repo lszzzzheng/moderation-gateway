@@ -94,6 +94,12 @@ def text_content(payload: Dict[str, Any]) -> str:
     return content[:MAX_MULTIMODAL_TEXT_CHARS]
 
 
+def payload_text_length(payload: Dict[str, Any]) -> int:
+    title = str(payload.get("title", "")).strip()
+    text = str(payload.get("text", "")).strip()
+    return len(title) + len(text)
+
+
 def text_service_parameters(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "content": text_content(payload),
@@ -126,9 +132,28 @@ def map_decision(risk_level: str) -> str:
     return "REVIEW"
 
 
+def limit_review_result(risk_level: str, error: str) -> Dict[str, Any]:
+    return {
+        "decision": "REVIEW",
+        "risk_level": risk_level,
+        "labels": [],
+        "req_id": "",
+        "service": "policy_limit",
+        "error": error,
+        "raw": {},
+    }
+
+
 def submit_and_poll(payload: Dict[str, Any]) -> Dict[str, Any]:
     client = build_client()
     images = normalize_images(payload.get("images", []))
+    scene = str(payload.get("scene", "")).lower()
+    text_length = payload_text_length(payload)
+    if scene == "post" and text_length > MAX_MULTIMODAL_TEXT_CHARS:
+        if images:
+            return limit_review_result("text_too_long_for_multimodal", "text_too_long_for_multimodal")
+        return limit_review_result("text_too_long", "text_too_long")
+
     service = resolve_service(payload, images)
     if service in {SETTINGS.text_service, SETTINGS.profile_text_service}:
         return submit_text_moderation(client, payload, service)
